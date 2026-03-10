@@ -86,10 +86,9 @@ def get_init_spect(scm, K, N, L=10000):
 
 
 def generate_toeplitz_basis(m):
-    """Generate Toeplitz basis matrices for CRB computation"""
     basis_matrices = []
     for g in range(1, m + 1):
-        B = torch.zeros((m, m), dtype=torch.cfloat)
+        B = torch.zeros((m, m), dtype=torch.complex128)
         for i in range(m):
             for k in range(m):
                 if i - k == g - 1:
@@ -105,41 +104,41 @@ def generate_toeplitz_basis(m):
 
 def compute_crb(R, n):
     """
-    Compute the Cramér-Rao Bound for Toeplitz covariance matrices.
+    Compute the CRB for Toeplitz covariance matrices parameterized by the real and imaginary
+    parts of the first row.
 
     Parameters:
         R (torch.Tensor): Toeplitz covariance matrix of shape (m, m).
         n (int): Number of independent samples.
+        verbose (bool): If True, prints the 1/n constant.
 
     Returns:
         torch.Tensor: Sum of per-parameter CRBs (lower bound on MSE).
     """
+    R = R.to(torch.complex128)
     m = R.shape[0]
     P = m
     theta_dim = 2 * P - 1
     basis_matrices = generate_toeplitz_basis(P)
     R_inv = torch.linalg.inv(R)
-
     # Build derivatives dR/dθ
     dR_dtheta = []
     for i in range(P):
-        dR_dtheta.append(basis_matrices[i].real)
+        dR_dtheta.append(basis_matrices[i].real.to(torch.complex128))
     for i in range(1, P):
-        dR_dtheta.append(1j * basis_matrices[i].imag)
+        dR_dtheta.append((1j * basis_matrices[i].imag).to(torch.complex128))
 
-    fim = torch.zeros((theta_dim, theta_dim), dtype=torch.complex64, device=R.device)
+    fim = torch.zeros((theta_dim, theta_dim), dtype=torch.float64, device=R.device)
 
     # Slepian-Bangs formula
     for i in range(theta_dim):
         for j in range(theta_dim):
-            dRi = dR_dtheta[i].to(torch.complex64)
-            dRj = dR_dtheta[j].to(torch.complex64)
+            dRi = dR_dtheta[i]
+            dRj = dR_dtheta[j]
             term = R_inv @ dRi @ R_inv @ dRj
-            fim[i, j] = torch.trace(term)
+            fim[i, j] = n * torch.trace(term)
 
     fim_inv = torch.linalg.inv(fim)
-    fim_inv = (1 / n) * fim_inv
-
     # Compute per-parameter CRB
     crb_params = torch.zeros(P, dtype=R.dtype, device=R.device)
     for i in range(P):
